@@ -338,6 +338,7 @@
     // The background video carries the song: the button just mutes/unmutes it, so picture and sound stay in sync.
     // Browsers only allow sound after a tap, so it starts muted if it has to and the first tap anywhere turns it on.
     (() => {
+      let away = false;   // set by the frame watchdog below
       const btn = document.getElementById("sound"), video = document.getElementById("bgvideo");
       function setSound(on) {
         video.muted = !on;
@@ -347,11 +348,22 @@
       btn.addEventListener("click", () => { setSound(video.muted); if (video.paused) video.play().catch(() => {}); });
       // Links open in a new tab, and browsers pause media in the tab you left. Pick the video (and its sound) back up
       // when you come back, and also on the next tap in case the browser refuses to resume by itself.
-      const resume = () => { if (!document.hidden && video.paused) video.play().catch(() => {}); };
+      const resume = () => { if (!document.hidden && !away && video.paused) video.play().catch(() => {}); };
       // Leaving the page (another tab, the app switcher, closing Instagram's browser) stops the song at once; coming back picks it up again.
       const stop = () => { if (!video.paused) video.pause(); };
       document.addEventListener("visibilitychange", () => { document.hidden ? stop() : resume(); });
       addEventListener("pagehide", stop);
+      addEventListener("blur", () => { if (!document.hasFocus()) stop(); });
+      // In-app browsers (Instagram, etc.) often send none of those events when you leave the app and just keep the song going until the OS
+      // freezes them. Drawing frames always stops when the page is not on screen, so a watchdog treats "no frames" as "left the page":
+      // pause and mute, then put both back when frames start again.
+      let lastFrame = performance.now(), mutedBefore = false;
+      const tick = t => { lastFrame = t; if (away) { away = false; video.muted = mutedBefore; resume(); } requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      setInterval(() => {
+        if (away || performance.now() - lastFrame < 600) return;
+        away = true; mutedBefore = video.muted; video.muted = true; stop();
+      }, 250);
       addEventListener("pageshow", resume);
       addEventListener("focus", resume);
       video.addEventListener("pause", () => setTimeout(resume, 150));
