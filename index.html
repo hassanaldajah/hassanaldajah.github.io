@@ -351,26 +351,44 @@
       btn.addEventListener("click", () => { setSound(video.muted); if (video.paused) video.play().catch(() => {}); });
       // Links open in a new tab, and browsers pause media in the tab you left. Pick the video (and its sound) back up
       // when you come back, and also on the next tap in case the browser refuses to resume by itself.
-      const resume = () => { if (!document.hidden && !away && video.paused) video.play().catch(() => {}); };
+      // The sound also goes through Web Audio (set up on the first tap): the OS silences that by itself when the app goes to the
+      // background, even where the browser runs no script at all, and we suspend / resume it ourselves on the events below.
+      let ctx = null, left = false;   // left: the page lost focus / was hidden and has not been used since
+      const route = () => {
+        if (ctx || !(window.AudioContext || window.webkitAudioContext)) return;
+        try {
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          ctx.createMediaElementSource(video).connect(ctx.destination);
+          ctx.addEventListener("statechange", () => { if ((document.hidden || away) && ctx.state === "running") ctx.suspend(); });
+        } catch (e) { ctx = null; }
+      };
+      ["pointerup", "keydown", "click"].forEach(t => addEventListener(t, route, { once: true, capture: true }));
+      const resume = () => {
+        if (document.hidden || away || left) return;
+        if (ctx && ctx.state !== "running") ctx.resume().catch(() => {});
+        if (video.paused) video.play().catch(() => {});
+      };
       // Leaving the page (another tab, the app switcher, closing Instagram's browser) stops the song at once; coming back picks it up again.
-      const stop = () => { if (!video.paused) video.pause(); };
-      document.addEventListener("visibilitychange", () => { document.hidden ? stop() : resume(); });
+      const stop = () => { left = true; if (ctx && ctx.state === "running") ctx.suspend(); if (!video.paused) video.pause(); };
+      const back = () => { left = false; resume(); };
+      document.addEventListener("visibilitychange", () => { document.hidden ? stop() : back(); });
       addEventListener("pagehide", stop);
-      addEventListener("blur", () => { if (!document.hasFocus()) stop(); });
+      addEventListener("blur", stop);
+      document.addEventListener("freeze", stop);
       // In-app browsers (Instagram, etc.) often send none of those events when you leave the app and just keep the song going until the OS
       // freezes them. Drawing frames always stops when the page is not on screen, so a watchdog treats "no frames" as "left the page":
       // pause and mute, then put both back when frames start again.
       let lastFrame = performance.now(), mutedBefore = false;
-      const tick = t => { lastFrame = t; if (away) { away = false; video.muted = mutedBefore; resume(); } requestAnimationFrame(tick); };
+      const tick = t => { lastFrame = t; if (away) { away = false; video.muted = mutedBefore; back(); } requestAnimationFrame(tick); };
       requestAnimationFrame(tick);
       setInterval(() => {
-        if (away || performance.now() - lastFrame < 600) return;
+        if (away || performance.now() - lastFrame < 350) return;
         away = true; mutedBefore = video.muted; video.muted = true; stop();
-      }, 250);
-      addEventListener("pageshow", resume);
-      addEventListener("focus", resume);
+      }, 120);
+      addEventListener("pageshow", back);
+      addEventListener("focus", back);
       video.addEventListener("pause", () => setTimeout(resume, 150));
-      addEventListener("pointerup", resume);
+      addEventListener("pointerup", back);
       video.muted = false;
       video.play().then(() => setSound(true)).catch(() => {
         video.muted = true; video.play().catch(() => {});
