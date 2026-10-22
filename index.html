@@ -50,6 +50,8 @@
       box-shadow: 0 0 16px rgba(106, 168, 255, .45), inset 0 0 12px rgba(106, 168, 255, .25);
       will-change: transform, opacity;
     }
+    /* blue frame on the video's edge, with a soft blue light around it (the sound button's blue); the script sizes the video to the picture itself */
+    .bg video { border-radius: 12px; box-shadow: 0 0 0 1px rgba(106, 168, 255, .7), 0 0 26px rgba(106, 168, 255, .35), 0 0 70px rgba(106, 168, 255, .15); }
     /* the video is opaque: the lightning is drawn behind it and only shows around it */
     .bg video { position: absolute; left: 0; top: var(--rt, 0px); width: 100%; height: calc(100% - var(--rt, 0px) - var(--rb, 0px)); object-fit: contain; display: block; }
 
@@ -309,6 +311,14 @@
         btn.setAttribute("aria-label", on ? "Turn sound off" : "Turn sound on");
       }
       btn.addEventListener("click", () => { setSound(video.muted); if (video.paused) video.play().catch(() => {}); });
+      // Links open in a new tab, and browsers pause media in the tab you left. Pick the video (and its sound) back up
+      // when you come back, and also on the next tap in case the browser refuses to resume by itself.
+      const resume = () => { if (!document.hidden && video.paused) video.play().catch(() => {}); };
+      document.addEventListener("visibilitychange", resume);
+      addEventListener("pageshow", resume);
+      addEventListener("focus", resume);
+      video.addEventListener("pause", () => setTimeout(resume, 150));
+      addEventListener("pointerup", resume);
       video.muted = false;
       video.play().then(() => setSound(true)).catch(() => {
         video.muted = true; video.play().catch(() => {});
@@ -463,6 +473,23 @@
       addEventListener("pointerup", e => { if (e.pointerType !== "mouse") release(); });
       addEventListener("pointercancel", release);
       document.documentElement.addEventListener("mouseleave", release);
+    })();
+
+    // Size the video element to the picture itself (not the letterboxed box around it) so the blue frame hugs its edge.
+    (() => {
+      const video = document.getElementById("bgvideo");
+      function fit() {
+        video.style.left = video.style.top = video.style.width = video.style.height = "";   // back to the CSS box (between the link rows)
+        const r = video.getBoundingClientRect(), vw = video.videoWidth || 576, vh = video.videoHeight || 654;
+        const k = Math.min(r.width / vw, r.height / vh), w = vw * k, h = vh * k;
+        video.style.left = r.left + (r.width - w) / 2 + "px";
+        video.style.top = r.top + (r.height - h) / 2 + "px";
+        video.style.width = w + "px";
+        video.style.height = h + "px";
+      }
+      video.addEventListener("loadedmetadata", fit);
+      addEventListener("resize", fit);
+      fit();
     })();
 
     // Put the links in their rows: 3 + 2 above the video, 3 + 2 below it
