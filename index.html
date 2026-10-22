@@ -29,10 +29,9 @@
       overflow-x: hidden;
     }
 
-    /* ---- Background: looping video (it also carries the song), darkened so the links stay readable ---- */
+    /* ---- Background: the looping video, shown whole in the middle (it also carries the song); links float in the black bands above and below ---- */
     .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #030409; }
-    .bg video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-    .bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(3,4,9,.55), rgba(3,4,9,.35) 45%, rgba(3,4,9,.65)); }
+    .bg video { position: absolute; left: 0; top: var(--rv, 0px); width: 100%; height: calc(100% - 2 * var(--rv, 0px)); object-fit: contain; display: block; }
 
     main { width: 100%; max-width: 440px; text-align: center; }
 
@@ -129,7 +128,7 @@
 
     /* Sound on/off (starts off: browsers block autoplay) */
     .sound {
-      position: fixed; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 5;
+      position: fixed; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 300;
       width: 44px; height: 44px; border-radius: 50%;
       display: grid; place-items: center;
       background: var(--card); border: 1px solid var(--border);
@@ -198,7 +197,6 @@
       { title: "Facebook",     url: "https://facebook.com/hassan.al.tlas.al.dajah", icon: "facebook", color: "#0866FF" },
       { title: "VSCO",         url: "https://vsco.co/hassan-aldajah/gallery", icon: "vsco",     color: "#ffffff" },
       { title: "Gmail",        url: "mailto:hassanaldajah2004@gmail.com", icon: "gmail", color: "#EA4335" },
-      { title: "Sarahah",      url: "https://twet.link/hasoooon",           icon: "message",  color: "#e5484d" },
       // Projects
       { title: "GitHub",       url: "https://github.com/hassanaldajah",     icon: "github",   color: "#ffffff", section: "Projects" },
       { title: "Portfolio",    url: "https://hassanaldajah.github.io/hassan-aldajah-portfolio/", icon: "web",      color: "#e5484d" },
@@ -271,20 +269,28 @@
     document.fonts.ready.then(placeIcons); // re-measure once Poppins has loaded
     document.getElementById("year").textContent = new Date().getFullYear();
 
-    // The background video carries the song: the button just unmutes it, so picture and sound stay in sync.
+    // The background video carries the song: the button just mutes/unmutes it, so picture and sound stay in sync.
+    // Browsers only allow sound after a tap, so it starts muted if it has to and the first tap anywhere turns it on.
     (() => {
       const btn = document.getElementById("sound"), video = document.getElementById("bgvideo");
-      btn.addEventListener("click", () => {
-        const on = video.muted;
+      function setSound(on) {
         video.muted = !on;
-        if (on) video.play().catch(() => {});
         btn.setAttribute("aria-pressed", on);
         btn.setAttribute("aria-label", on ? "Turn sound off" : "Turn sound on");
+      }
+      btn.addEventListener("click", () => { setSound(video.muted); if (video.paused) video.play().catch(() => {}); });
+      video.muted = false;
+      video.play().then(() => setSound(true)).catch(() => {
+        video.muted = true; video.play().catch(() => {});
+        const first = e => { if (btn.contains(e.target)) return; setSound(true); if (video.paused) video.play().catch(() => {}); };
+        addEventListener("pointerup", first, { once: true });
+        addEventListener("keydown", first, { once: true });
       });
     })();
 
-    // Space mode: Three.js lays the links out on tilted orbits in real 3D (halos + dust are drawn in WebGL, the
-    // buttons stay real <a> tags and follow their 3D position, so taps, focus and screen readers keep working).
+    // Space mode: Three.js lays the links out on tilted orbits in real 3D (halos are drawn in WebGL, the buttons
+    // stay real <a> tags and follow their 3D position, so taps, focus and screen readers keep working).
+    // The video sits in the middle, uncovered; 5 links float in the band above it and 6 in the band below.
     // GSAP handles the fly-in, the slow-down while a finger/pointer is on a link, and the smoothed tilt.
     // Any failure (offline CDN, no WebGL, reduced motion) leaves the plain list untouched.
     (async () => {
@@ -306,60 +312,55 @@
         renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
       } catch (e) { console.warn("Space mode unavailable, keeping the plain list", e); return; }
 
-      const FOV = 50, CAM_Z = 12, DEPTH = 3.2;      // DEPTH: how far in front/behind the centre an item swings
+      // orthographic camera, 1 world unit = 1 screen pixel: a band of the screen stays a band however the rig tilts
+      const DEPTH = 110, TOP = 5;            // DEPTH: how far in front/behind the centre an item swings (px); TOP: links above the video
       const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(FOV, 1, .1, 100);
-      camera.position.set(0, 0, CAM_Z);
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
+      camera.position.z = 500;
       const rig = new THREE.Group(); scene.add(rig);    // everything tilts together with the phone
 
-      function dot(inner, outer) {
+      const haloTex = (() => {
         const c = document.createElement("canvas"); c.width = c.height = 128;
         const g = c.getContext("2d"), r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-        r.addColorStop(0, inner); r.addColorStop(1, outer);
+        r.addColorStop(0, "rgba(255,255,255,.9)"); r.addColorStop(1, "rgba(255,255,255,0)");
         g.fillStyle = r; g.fillRect(0, 0, 128, 128);
         return new THREE.CanvasTexture(c);
-      }
-      const haloTex = dot("rgba(255,255,255,.9)", "rgba(255,255,255,0)");
+      })();
 
-      // dust: a slow field of tiny stars behind and around the links, for parallax
-      const N = 650, pos = new Float32Array(N * 3);
-      for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - .5) * 26; pos[i * 3 + 1] = (Math.random() - .5) * 20; pos[i * 3 + 2] = -9 + Math.random() * 14; }
-      const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
-        size: .05, map: dot("rgba(190,215,255,1)", "rgba(190,215,255,0)"), transparent: true, opacity: .7,
-        depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffffff,
-      }));
-      rig.add(dust);
-
-      // one entry per link: its own orbit (size, speed, direction, tilt) and a coloured halo behind the button
+      // one entry per link: its own orbit (size, speed, direction, tilt) and a coloured halo that shows on touch
       const items = els.map((el, i) => {
         const brand = getComputedStyle(el.firstElementChild).getPropertyValue("--brand").trim() || "#6aa8ff";
         const halo = new THREE.Sprite(new THREE.SpriteMaterial({
           map: haloTex, color: new THREE.Color(brand), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
         }));
-        halo.scale.setScalar(2.1); rig.add(halo);
+        halo.scale.setScalar(260); rig.add(halo);
+        const g = i < TOP ? 0 : 1, gi = g ? i - TOP : i, gn = g ? els.length - TOP : TOP;
         return {
-          el, halo, k: 0, o: 0, hv: 0,                       // k: orbit size multiplier, o: opacity (both tweened in at the start)
+          el, halo, g, k: 0, o: 0, hv: 0,               // k: orbit size multiplier, o: opacity (tweened in at the start), hv: halo (touch)
           phase: i * 2.399,                              // golden angle: evenly spread, never in a line
           speed: (.12 + ((i * 7) % 5) * .018) * (i % 3 === 1 ? -1 : 1),
           ring: [.7, 1, .86][i % 3],
-          lift: i * 1.7,                                 // vertical phase: tilts each orbit differently
-          lane: ((i * 5) % els.length) / (els.length - 1) * 2 - 1,   // fixed height band, so the links spread down the screen
+          lift: i * 1.7,
+          lane: ((gi * (gn === 5 ? 3 : 5)) % gn) / (gn - 1) * 2 - 1,   // fixed height band inside its zone, so links spread out
           bob: i * .9,
         };
       });
 
-      // sizes depend on the viewport; recomputed on resize
-      let W = 1, H = 1, rx = 1, ay = 1, cy = 0;
+      // layout depends on the viewport; recomputed on resize
+      let W = 1, H = 1, rx = 1, ay = 1;
+      const cy = [0, 0];                                 // vertical centre of the top / bottom band (world y)
       function resize() {
         W = innerWidth; H = innerHeight;
         renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
         renderer.setSize(W, H, false);
-        camera.aspect = W / H; camera.updateProjectionMatrix();
-        const halfH = CAM_Z * Math.tan(FOV * Math.PI / 360), ppu = H / (2 * halfH);   // pixels per world unit at z=0
-        rx = Math.min(W / 2 - 104, 520) / ppu;
-        ay = H * .38 / ppu;
-        cy = -H * .02 / ppu;                              // orbit centre sits a little below the middle of the screen
+        camera.left = -W / 2; camera.right = W / 2; camera.top = H / 2; camera.bottom = -H / 2; camera.updateProjectionMatrix();
+        // the video is shown whole (contain); reserve the band above and below it for the links
+        const reserve = Math.round(Math.max(110, Math.min(H * .22, 200)));
+        document.documentElement.style.setProperty("--rv", reserve + "px");
+        rx = Math.min(W / 2 - 84, 520);
+        ay = Math.max(16, reserve * .5 - 30);
+        cy[0] = H / 2 - reserve * .7;
+        cy[1] = -H / 2 + reserve * .5;
       }
       addEventListener("resize", resize); resize();
 
@@ -369,20 +370,17 @@
       const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
       const tilt = (x, y) => { rotY(x * .55); rotX(y * .3); };
       addEventListener("pointermove", e => { if (e.pointerType === "mouse") tilt((e.clientX / W - .5) * 2, (e.clientY / H - .5) * 2); });
-      let gyro = false;
       addEventListener("deviceorientation", e => {
         if (e.gamma == null) return;
-        gyro = true;
         tilt(clamp(e.gamma / 30, -1, 1), clamp(((e.beta ?? 60) - 55) / 30, -1, 1));
       });
       // iOS only delivers orientation after a tap grants permission
-      const needsPermission = window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function";
-      if (needsPermission) {
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function") {
         const ask = () => { DeviceOrientationEvent.requestPermission().catch(() => {}); removeEventListener("pointerup", ask); };
         addEventListener("pointerup", ask);
       }
 
-      // slow everything down while a finger or pointer is on a link, so it is easy to tap
+      // slow everything down while a finger or pointer is on a link (easy to tap), and show that link's colour
       const state = { speed: 1 };
       items.forEach(it => {
         const a = it.el.firstElementChild;
@@ -393,7 +391,6 @@
       });
 
       document.body.classList.add("space");
-      items.forEach(it => { it.el.style.opacity = 0; });
       gsap.to(items, { k: 1, o: 1, duration: 2.2, ease: "power3.out", stagger: .12, delay: .2 });   // fly out from the centre
 
       const v = new THREE.Vector3(), clock = new THREE.Clock();
@@ -404,20 +401,18 @@
         rig.updateMatrixWorld();
         for (const it of items) {
           const a = it.phase + t * it.speed;
-          v.set(Math.cos(a) * rx * it.ring, cy + (it.lane * .78 + Math.sin(a + it.lift) * .22) * ay + Math.sin(t * .9 + it.bob) * .12, Math.sin(a) * DEPTH);
+          v.set(Math.cos(a) * rx * it.ring, cy[it.g] + (it.lane * .78 + Math.sin(a + it.lift) * .22) * ay + Math.sin(t * .9 + it.bob) * 3, Math.sin(a) * DEPTH);
           v.multiplyScalar(it.k);
           it.halo.position.copy(v);
           rig.localToWorld(v);
           const d = clamp((v.z / DEPTH + 1) / 2, 0, 1);                       // 0 = far side of the orbit, 1 = nearest
-          v.project(camera);
-          const x = (v.x * .5 + .5) * W, y = (-v.y * .5 + .5) * H;
-          const s = .7 + .42 * d, op = (.4 + .6 * d) * it.o;
+          const x = W / 2 + v.x, y = H / 2 - v.y;
+          const s = .72 + .36 * d, op = (.4 + .6 * d) * it.o;
           it.el.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(-50%,-50%) scale(${s.toFixed(3)})`;
           it.el.style.opacity = op.toFixed(3);
           it.el.style.zIndex = Math.round(d * 100);
           it.halo.material.opacity = .6 * (.3 + .7 * d) * it.o * it.hv;   // halo shows only while touched / hovered
         }
-        dust.rotation.y = t * .01;
         renderer.render(scene, camera);
         requestAnimationFrame(frame);
       }
