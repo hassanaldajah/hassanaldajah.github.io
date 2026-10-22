@@ -50,8 +50,20 @@
       box-shadow: 0 0 16px rgba(106, 168, 255, .45), inset 0 0 12px rgba(106, 168, 255, .25);
       will-change: transform, opacity;
     }
-    /* blue frame on the video's edge, with a soft blue light around it (the sound button's blue); the script sizes the video to the picture itself */
-    .bg video { border-radius: 12px; box-shadow: 0 0 0 1px rgba(106, 168, 255, .7), 0 0 26px rgba(106, 168, 255, .35), 0 0 70px rgba(106, 168, 255, .15); }
+    /* the video dissolves into the background: its edges and corners fade out (mask), and the grid lines carry on faintly across it.
+       The script sizes the video to the picture itself, so the fade starts right at the picture's edge. */
+    .bg video, #gridover {
+      --fade: 10px;
+      -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent), linear-gradient(to bottom, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+      -webkit-mask-composite: source-in;
+      mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent), linear-gradient(to bottom, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+      mask-composite: intersect;
+    }
+    #gridover {
+      position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none;
+      background: linear-gradient(rgba(106, 168, 255, .10) 1px, transparent 1px), linear-gradient(90deg, rgba(106, 168, 255, .10) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
     /* the video is opaque: the lightning is drawn behind it and only shows around it */
     .bg video { position: absolute; left: 0; top: var(--rt, 0px); width: 100%; height: calc(100% - var(--rt, 0px) - var(--rb, 0px)); object-fit: contain; display: block; }
 
@@ -182,6 +194,13 @@
     .r1 { --n: 3; --w: 380px; --f: 13px; --h: 46px; --ic: 20px; }
     .r2 { --n: 2; --w: 262px; --f: 12.5px; --h: 42px; --ic: 18px; }
     li.section { display: none; }
+    @media (min-width: 800px) and (orientation: landscape) {
+      :root { --rt: 84px; --rb: 104px; }
+      #top { top: 20px; }
+      #bottom { bottom: 36px; }
+      .band { flex-direction: row; justify-content: center; align-items: center; gap: 12px; }
+      .row { width: var(--w); }
+    }
     .band a.link {
       width: 100%; height: 100%; min-height: var(--h); padding: 6px 10px; gap: 7px;
       font-size: var(--f); line-height: 1.15; text-align: left; white-space: normal;
@@ -201,7 +220,21 @@
   </style>
 </head>
 <body>
-  <div class="bg"><canvas id="bolts"></canvas><video id="bgvideo" src="bg.mp4" autoplay muted loop playsinline preload="auto"></video></div>
+  <div class="bg"><canvas id="bolts"></canvas><video id="bgvideo" src="bg.mp4" autoplay muted loop playsinline preload="auto"></video><div id="gridover"></div></div>
+  <script>
+    // phones keep the portrait video; laptops get the wide crop (the race itself), swapped live if the window changes shape
+    (() => {
+      const video = document.getElementById("bgvideo"), wide = matchMedia("(min-width: 800px) and (orientation: landscape)");
+      function pick() {
+        const want = wide.matches ? "bg-wide.mp4" : "bg.mp4";
+        if (video.getAttribute("src") === want) return;
+        video.setAttribute("src", want);
+        video.play().catch(() => {});
+      }
+      wide.addEventListener("change", pick);
+      pick();
+    })();
+  </script>
   <main>
     <img class="avatar" src="avatar.jpg" alt="Hassan Aldajah">
     <h1>Hassan Aldajah</h1>
@@ -462,7 +495,14 @@
       }
       function move(e) {
         if (e.target.closest && e.target.closest("a.link, .avatar, #sound")) return release();
-        const c = el(Math.floor(e.clientX / SIZE), Math.floor(e.clientY / SIZE));
+        const col = Math.floor(e.clientX / SIZE), row = Math.floor(e.clientY / SIZE);
+        // no square is lit where a link sits: skip any square that touches one of the link buttons
+        const l = col * SIZE, t = row * SIZE;
+        for (const a of document.querySelectorAll("a.link")) {
+          const r = a.getBoundingClientRect();
+          if (l < r.right + 2 && l + SIZE > r.left - 2 && t < r.bottom + 2 && t + SIZE > r.top - 2) return release();
+        }
+        const c = el(col, row);
         if (c === current) return;
         release();
         current = c;
@@ -486,6 +526,10 @@
         video.style.top = r.top + (r.height - h) / 2 + "px";
         video.style.width = w + "px";
         video.style.height = h + "px";
+        // the faint extra grid covers only the picture, and its lines stay aligned with the page grid
+        const g = document.getElementById("gridover").style, L = r.left + (r.width - w) / 2, T = r.top + (r.height - h) / 2;
+        g.left = L + "px"; g.top = T + "px"; g.width = w + "px"; g.height = h + "px";
+        g.backgroundPosition = -L + "px " + -T + "px";
       }
       video.addEventListener("loadedmetadata", fit);
       addEventListener("resize", fit);
