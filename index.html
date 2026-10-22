@@ -107,9 +107,10 @@
       transform: skewX(-20deg);
       transition: left .6s ease;
     }
+    /* --brand / --glow are set per link from its icon colour (see the script) */
     a.link:hover, a.link:focus-visible {
-      border-color: var(--accent);
-      box-shadow: 0 0 20px rgba(229, 72, 77, .45);
+      border-color: var(--brand, var(--accent));
+      box-shadow: 0 0 20px var(--glow, rgba(229, 72, 77, .45));
       transform: translateY(-3px) scale(1.015);
       outline: none;
     }
@@ -119,10 +120,6 @@
     a.link:hover svg { transform: scale(1.15); }
 
     /* Project links: round logo with a ring in the project's own colours */
-    a.link.project:hover, a.link.project:focus-visible {
-      border-color: var(--brand);
-      box-shadow: 0 0 20px var(--glow);
-    }
     .logo {
       flex-shrink: 0;
       width: 20px; height: 20px; padding: 1.5px;
@@ -176,7 +173,7 @@
       { title: "LinkedIn",     url: "https://linkedin.com/in/hassan-aldajah", icon: "linkedin", color: "#0A66C2" },
       { title: "Facebook",     url: "https://facebook.com/hassan.al.tlas.al.dajah", icon: "facebook", color: "#0866FF" },
       { title: "VSCO",         url: "https://vsco.co/hassan-aldajah/gallery", icon: "vsco",     color: "#ffffff" },
-      { title: "Gmail",        url: "mailto:hassanaldajah2004@gmail.com", icon: "gmail" },
+      { title: "Gmail",        url: "mailto:hassanaldajah2004@gmail.com", icon: "gmail", color: "#EA4335" },
       { title: "Sarahah",      url: "https://twet.link/hasoooon",           icon: "message",  color: "#e5484d" },
       // Projects
       { title: "GitHub",       url: "https://github.com/hassanaldajah",     icon: "github",   color: "#ffffff", section: "Projects" },
@@ -220,10 +217,13 @@
       a.href = l.url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
+      const brand = l.brand || l.color;
+      if (brand) {
+        a.style.setProperty("--brand", brand);
+        a.style.setProperty("--glow", brand + "73");
+      }
       if (l.logo) {
         a.classList.add("project");
-        a.style.setProperty("--brand", l.brand);
-        a.style.setProperty("--glow", l.brand + "73");
         a.style.setProperty("--ring", l.ring || l.brand);
         a.innerHTML = `<span class="logo"><img src="${l.logo}" alt="" width="17" height="17" loading="lazy"></span>`;
       } else {
