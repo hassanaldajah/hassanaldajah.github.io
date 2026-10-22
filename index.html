@@ -124,7 +124,7 @@
 
     footer { margin-top: 40px; color: var(--muted); font-size: 12px; animation: rise .6s .8s ease-out both; }
 
-    /* Storm sound on/off (starts off: browsers block autoplay, and nobody wants a surprise thunderclap) */
+    /* Sound on/off (starts off: browsers block autoplay) */
     .sound {
       position: fixed; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 5;
       width: 44px; height: 44px; border-radius: 50%;
@@ -141,6 +141,23 @@
     .sound[aria-pressed="true"] .waves { display: inline; }
     .sound[aria-pressed="true"] .slash { display: none; }
 
+    /* ---- Space mode: the links float in 3D around the screen (added by the script once Three.js has loaded) ---- */
+    #space { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; display: block; }
+    body.space { overflow: hidden; }
+    body.space main { position: relative; z-index: 50; pointer-events: none; }
+    body.space .avatar { pointer-events: auto; }
+    body.space footer { position: fixed; left: 0; right: 0; bottom: max(18px, env(safe-area-inset-bottom)); margin: 0; z-index: 4; }
+    body.space ul { position: fixed; inset: 0; display: block; pointer-events: none; }
+    body.space li.section { display: none; }
+    body.space li { position: absolute; left: 0; top: 0; animation: none; opacity: 0; will-change: transform, opacity; pointer-events: none; }
+    body.space a.link {
+      pointer-events: auto; white-space: nowrap; justify-content: flex-start;
+      padding: 10px 20px 10px 44px; font-size: 14px;
+      box-shadow: 0 8px 28px -10px var(--glow, rgba(106, 168, 255, .45));
+      -webkit-tap-highlight-color: transparent;
+    }
+    body.space a.link > svg, body.space a.link > .logo { left: 15px; }
+
     @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
 
     @media (prefers-reduced-motion: reduce) {
@@ -156,7 +173,7 @@
     <ul id="links"></ul>
     <footer>© <span id="year"></span> Hassan Aldajah</footer>
   </main>
-  <button id="sound" class="sound" type="button" aria-pressed="false" aria-label="Turn storm sound on" title="Storm sound">
+  <button id="sound" class="sound" type="button" aria-pressed="false" aria-label="Turn sound on" title="Sound">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3 9v6h4l5 4V5L7 9H3z"/>
       <path class="waves" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
@@ -477,141 +494,162 @@
       if (!reduce) requestAnimationFrame(frame);
     })();
 
-    // Storm sound, synthesised with Web Audio (no audio files): a bed of wind and rain, plus a thunder roll after
-    // every strike, panned to where it hit and arriving a little late (the further away, the later).
+    // Background song: plays song.mp3 on loop when the sound button is toggled on (browsers block autoplay, so it starts off).
     (() => {
       const btn = document.getElementById("sound");
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) { btn.remove(); return; }
-      const rand = (a, b) => a + Math.random() * (b - a);
-      const LEVEL = .6;      // volume once the fade-in is done: medium, not loud
-      const START = .03;     // where it starts: very quiet
-      const FADE_IN = 12;    // seconds to rise from START to LEVEL, as a steady (perceptually even) swell
-      let ac, master, bus, brown, white, on = false;
-
-      function noise(seconds, brownian) {
-        const len = Math.floor(ac.sampleRate * seconds), buf = ac.createBuffer(2, len, ac.sampleRate);
-        for (let c = 0; c < 2; c++) {
-          const d = buf.getChannelData(c);
-          let last = 0;
-          for (let i = 0; i < len; i++) {
-            const v = Math.random() * 2 - 1;
-            if (brownian) { last = (last + .02 * v) / 1.02; d[i] = last * 3.5; } else d[i] = v;
-          }
-        }
-        return buf;
-      }
-
-      function setup() {
-        ac = new AC();
-        const comp = ac.createDynamicsCompressor();   // a gentle limiter: only tames the loudest peaks, so thunder still stands out from the wind
-        comp.threshold.value = -8; comp.knee.value = 6; comp.ratio.value = 6; comp.attack.value = .002; comp.release.value = .2;
-        master = ac.createGain(); master.gain.value = 0;
-        master.connect(comp); comp.connect(ac.destination);
-        brown = noise(10, true); white = noise(6, false);
-
-        // Thunder goes through a soft saturator. It adds harmonics of the deep rumble, which a phone speaker can play
-        bus = ac.createWaveShaper(); bus.oversample = "2x";
-        const curve = new Float32Array(1024);
-        for (let i = 0; i < curve.length; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(2.2 * x) / Math.tanh(2.2); }
-        bus.curve = curve; bus.connect(master);
-
-        // wind: brown noise through a low-pass whose cutoff drifts slowly, like gusts
-        const wind = ac.createBufferSource(); wind.buffer = brown; wind.loop = true;
-        const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 380;
-        const gust = ac.createOscillator(); gust.frequency.value = .07;
-        const gustDepth = ac.createGain(); gustDepth.gain.value = 170;
-        gust.connect(gustDepth); gustDepth.connect(lp.frequency);
-        const windGain = ac.createGain(); windGain.gain.value = .2;
-        wind.connect(lp); lp.connect(windGain); windGain.connect(master);
-
-        // the mid-range whoosh of the gusts: the deep wind alone would vanish on a phone speaker
-        const air = ac.createBufferSource(); air.buffer = white; air.loop = true;
-        const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 550; bp.Q.value = .6;
-        const airGain = ac.createGain(); airGain.gain.value = .03;
-        const airSwell = ac.createGain(); airSwell.gain.value = .025;
-        gust.connect(airSwell); airSwell.connect(airGain.gain);
-        air.connect(bp); bp.connect(airGain); airGain.connect(master);
-        air.start();
-
-        // rain: a soft hiss
-        const rain = ac.createBufferSource(); rain.buffer = white; rain.loop = true;
-        const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 2200;
-        const hiss = ac.createBiquadFilter(); hiss.type = "lowpass"; hiss.frequency.value = 8000;
-        const rainGain = ac.createGain(); rainGain.gain.value = .03;
-        rain.connect(hp); hp.connect(hiss); hiss.connect(rainGain); rainGain.connect(master);
-
-        wind.start(); rain.start(); gust.start();
-      }
-
-      // the sharp "crack" of a close strike
-      function crack(t0) {
-        const src = ac.createBufferSource(); src.buffer = white;
-        const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1500;
-        const g = ac.createGain();
-        g.gain.setValueAtTime(.0001, t0);
-        g.gain.exponentialRampToValueAtTime(.5, t0 + .01);
-        g.gain.exponentialRampToValueAtTime(.0001, t0 + .22);
-        src.connect(hp); hp.connect(g); g.connect(master);
-        src.start(t0, rand(0, 5)); src.stop(t0 + .3);
-      }
-
-      function thunder(kind, x) {
-        if (!on) return;
-        const big = kind === "strike";
-        const delay = big ? rand(.15, 1.3) : rand(.4, 1.8);
-        const t0 = ac.currentTime + delay, dur = big ? rand(3.5, 6) : rand(1.6, 2.8);
-        const peak = (big ? 1.6 : .6) * (delay < .5 ? 1 : .8);
-        const src = ac.createBufferSource(); src.buffer = brown;
-        const lp = ac.createBiquadFilter(); lp.type = "lowpass";
-        lp.frequency.setValueAtTime(big ? 1200 : 600, t0);
-        lp.frequency.exponentialRampToValueAtTime(150, t0 + dur);     // the rumble sinks as it rolls away
-        const g = ac.createGain();
-        g.gain.setValueAtTime(.0001, t0);
-        g.gain.exponentialRampToValueAtTime(peak, t0 + .05);
-        g.gain.exponentialRampToValueAtTime(peak * .3, t0 + .4);
-        g.gain.exponentialRampToValueAtTime(peak * .7, t0 + .9 + rand(0, .5));   // and swells again
-        if (big) g.gain.exponentialRampToValueAtTime(peak * .12, t0 + dur * .6);  // a long tail
-        g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
-        src.connect(lp); lp.connect(g);
-        const body = ac.createBufferSource(); body.buffer = white; body.loop = true;   // mid-range body, so phones hear it too
-        const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 320; bp.Q.value = .6;
-        const bodyGain = ac.createGain(); bodyGain.gain.value = .4;
-        body.connect(bp); bp.connect(bodyGain); bodyGain.connect(g);
-        let out = g;
-        if (ac.createStereoPanner) {
-          const pan = ac.createStereoPanner();
-          pan.pan.value = Math.max(-1, Math.min(1, (x - .5) * 1.6));
-          g.connect(pan); out = pan;
-        }
-        out.connect(bus);
-        src.start(t0, rand(0, 3)); src.stop(t0 + dur + .2);
-        body.start(t0, rand(0, 5)); body.stop(t0 + dur + .2);
-        if (big && delay < .6) crack(t0);
-      }
-
+      const audio = new Audio("song.mp3");
+      audio.loop = true; audio.volume = .6; audio.preload = "none";
       btn.addEventListener("click", () => {
-        if (!ac) setup();
-        on = !on;
-        if (on) ac.resume();
-        const now = ac.currentTime;
-        master.gain.cancelScheduledValues(now);
-        const g0 = Math.max(master.gain.value, START);
-        master.gain.setValueAtTime(on ? g0 : master.gain.value, now);
-        if (on) {   // start quiet and swell slowly to LEVEL (same rate of rise if it was already part-way up)
-          master.gain.exponentialRampToValueAtTime(LEVEL, now + FADE_IN * Math.log(LEVEL / g0) / Math.log(LEVEL / START));
-        } else {    // quick fade out
-          master.gain.setTargetAtTime(0, now, .15);
-        }
-        if (!on) setTimeout(() => { if (!on) ac.suspend(); }, 700);
+        const on = audio.paused;
+        if (on) audio.play().catch(() => {}); else audio.pause();
         btn.setAttribute("aria-pressed", on);
-        btn.setAttribute("aria-label", on ? "Turn storm sound off" : "Turn storm sound on");
+        btn.setAttribute("aria-label", on ? "Turn sound off" : "Turn sound on");
       });
-      addEventListener("storm", e => thunder(e.detail.kind, e.detail.x));
       document.addEventListener("visibilitychange", () => {   // no sound from a background tab
-        if (!ac) return;
-        if (document.hidden) ac.suspend(); else if (on) ac.resume();
+        if (document.hidden) audio.pause();
+        else if (btn.getAttribute("aria-pressed") === "true") audio.play().catch(() => {});
       });
+    })();
+
+    // Space mode: Three.js lays the links out on tilted orbits in real 3D (halos + dust are drawn in WebGL, the
+    // buttons stay real <a> tags and follow their 3D position, so taps, focus and screen readers keep working).
+    // GSAP handles the fly-in, the slow-down while a finger/pointer is on a link, and the smoothed tilt.
+    // Any failure (offline CDN, no WebGL, reduced motion) leaves the plain list untouched.
+    (async () => {
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const els = [...document.querySelectorAll("#links li:not(.section)")];
+      if (!els.length) return;
+      let THREE, gsap, renderer;
+      try {
+        const script = src => new Promise((ok, no) => {
+          const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.append(s);
+        });
+        [THREE] = await Promise.all([
+          import("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"),
+          script("https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"),
+        ]);
+        gsap = window.gsap;
+        const canvas = document.createElement("canvas"); canvas.id = "space";
+        document.body.prepend(canvas);
+        renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
+      } catch (e) { console.warn("Space mode unavailable, keeping the plain list", e); return; }
+
+      const FOV = 50, CAM_Z = 12, DEPTH = 3.2;      // DEPTH: how far in front/behind the centre an item swings
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(FOV, 1, .1, 100);
+      camera.position.set(0, 0, CAM_Z);
+      const rig = new THREE.Group(); scene.add(rig);    // everything tilts together with the phone
+
+      function dot(inner, outer) {
+        const c = document.createElement("canvas"); c.width = c.height = 128;
+        const g = c.getContext("2d"), r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+        r.addColorStop(0, inner); r.addColorStop(1, outer);
+        g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+        return new THREE.CanvasTexture(c);
+      }
+      const haloTex = dot("rgba(255,255,255,.9)", "rgba(255,255,255,0)");
+
+      // dust: a slow field of tiny stars behind and around the links, for parallax
+      const N = 650, pos = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - .5) * 26; pos[i * 3 + 1] = (Math.random() - .5) * 20; pos[i * 3 + 2] = -9 + Math.random() * 14; }
+      const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+        size: .05, map: dot("rgba(190,215,255,1)", "rgba(190,215,255,0)"), transparent: true, opacity: .7,
+        depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffffff,
+      }));
+      rig.add(dust);
+
+      // one entry per link: its own orbit (size, speed, direction, tilt) and a coloured halo behind the button
+      const items = els.map((el, i) => {
+        const brand = getComputedStyle(el.firstElementChild).getPropertyValue("--brand").trim() || "#6aa8ff";
+        const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: haloTex, color: new THREE.Color(brand), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
+        }));
+        halo.scale.setScalar(2.1); rig.add(halo);
+        return {
+          el, halo, k: 0, o: 0,                         // k: orbit size multiplier, o: opacity (both tweened in at the start)
+          phase: i * 2.399,                              // golden angle: evenly spread, never in a line
+          speed: (.12 + ((i * 7) % 5) * .018) * (i % 3 === 1 ? -1 : 1),
+          ring: [.7, 1, .86][i % 3],
+          lift: i * 1.7,                                 // vertical phase: tilts each orbit differently
+          lane: ((i * 5) % els.length) / (els.length - 1) * 2 - 1,   // fixed height band, so the links spread down the screen
+          bob: i * .9,
+        };
+      });
+
+      // sizes depend on the viewport; recomputed on resize
+      let W = 1, H = 1, rx = 1, ay = 1, cy = 0;
+      function resize() {
+        W = innerWidth; H = innerHeight;
+        renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+        renderer.setSize(W, H, false);
+        camera.aspect = W / H; camera.updateProjectionMatrix();
+        const halfH = CAM_Z * Math.tan(FOV * Math.PI / 360), ppu = H / (2 * halfH);   // pixels per world unit at z=0
+        rx = Math.min(W / 2 - 104, 520) / ppu;
+        ay = H * .3 / ppu;
+        cy = -H * .14 / ppu;                              // orbit centre sits a little below the middle of the screen
+      }
+      addEventListener("resize", resize); resize();
+
+      // tilt: phone orientation, or the pointer on desktop. quickTo smooths it so it never snaps.
+      const rotY = gsap.quickTo(rig.rotation, "y", { duration: 1.4, ease: "power3.out" });
+      const rotX = gsap.quickTo(rig.rotation, "x", { duration: 1.4, ease: "power3.out" });
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const tilt = (x, y) => { rotY(x * .55); rotX(y * .3); };
+      addEventListener("pointermove", e => { if (e.pointerType === "mouse") tilt((e.clientX / W - .5) * 2, (e.clientY / H - .5) * 2); });
+      let gyro = false;
+      addEventListener("deviceorientation", e => {
+        if (e.gamma == null) return;
+        gyro = true;
+        tilt(clamp(e.gamma / 30, -1, 1), clamp(((e.beta ?? 60) - 55) / 30, -1, 1));
+      });
+      // iOS only delivers orientation after a tap grants permission
+      const needsPermission = window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function";
+      if (needsPermission) {
+        const ask = () => { DeviceOrientationEvent.requestPermission().catch(() => {}); removeEventListener("pointerup", ask); };
+        addEventListener("pointerup", ask);
+      }
+
+      // slow everything down while a finger or pointer is on a link, so it is easy to tap
+      const state = { speed: 1 };
+      els.forEach(el => {
+        const a = el.firstElementChild;
+        const slow = () => gsap.to(state, { speed: .15, duration: .5, ease: "power2.out", overwrite: true });
+        const go = () => gsap.to(state, { speed: 1, duration: 1, ease: "power2.inOut", overwrite: true });
+        a.addEventListener("pointerenter", slow); a.addEventListener("pointerdown", slow);
+        a.addEventListener("pointerleave", go); a.addEventListener("pointercancel", go);
+      });
+
+      document.body.classList.add("space");
+      items.forEach(it => { it.el.style.opacity = 0; });
+      gsap.to(items, { k: 1, o: 1, duration: 2.2, ease: "power3.out", stagger: .12, delay: .2 });   // fly out from the centre
+
+      const v = new THREE.Vector3(), clock = new THREE.Clock();
+      let t = 0;
+      function frame() {
+        const dt = Math.min(clock.getDelta(), .05);
+        t += dt * state.speed;
+        rig.updateMatrixWorld();
+        for (const it of items) {
+          const a = it.phase + t * it.speed;
+          v.set(Math.cos(a) * rx * it.ring, cy + (it.lane * .78 + Math.sin(a + it.lift) * .22) * ay + Math.sin(t * .9 + it.bob) * .12, Math.sin(a) * DEPTH);
+          v.multiplyScalar(it.k);
+          it.halo.position.copy(v);
+          rig.localToWorld(v);
+          const d = clamp((v.z / DEPTH + 1) / 2, 0, 1);                       // 0 = far side of the orbit, 1 = nearest
+          v.project(camera);
+          const x = (v.x * .5 + .5) * W, y = (-v.y * .5 + .5) * H;
+          const s = .7 + .42 * d, op = (.4 + .6 * d) * it.o;
+          it.el.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(-50%,-50%) scale(${s.toFixed(3)})`;
+          it.el.style.opacity = op.toFixed(3);
+          it.el.style.zIndex = Math.round(d * 100);
+          it.halo.material.opacity = .5 * (.3 + .7 * d) * it.o;
+        }
+        dust.rotation.y = t * .01;
+        renderer.render(scene, camera);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
     })();
   </script>
 </body>
