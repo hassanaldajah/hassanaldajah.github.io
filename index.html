@@ -32,6 +32,12 @@
     /* ---- Background: the looping video, shown whole in the middle (it also carries the song); the links sit in rows above and below it ---- */
     .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #030409; }
     .bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    /* blue glow under the finger / pointer, same blue as the sound button's glow */
+    .touch-glow {
+      position: absolute; left: 0; top: 0; width: 200px; height: 200px; margin: -100px 0 0 -100px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(106, 168, 255, .45) 0, rgba(106, 168, 255, .45) 30%, rgba(106, 168, 255, 0) 70%);   /* .45 = the sound button glow */
+      opacity: 0; transition: opacity .35s ease; will-change: transform, opacity;
+    }
     /* the video is opaque: the lightning is drawn behind it and only shows around it */
     .bg video { position: absolute; left: 0; top: var(--rt, 0px); width: 100%; height: calc(100% - var(--rt, 0px) - var(--rb, 0px)); object-fit: contain; display: block; }
 
@@ -147,8 +153,9 @@
 
     /* ---- Layout: the video sits whole in the middle; two rows of links above it (3 + 2) and two below (3 + 2) ---- */
     :root { --rt: clamp(190px, 27vh, 230px); --rb: clamp(150px, 20vh, 170px); }   /* heights of the space above / below the video; the video fills what is left */
-    body { overflow: hidden; }
+    body { overflow: hidden; touch-action: none; }   /* no panning, so a finger drag keeps reporting its position */
     main { position: relative; z-index: 50; pointer-events: none; }
+    .avatar { pointer-events: auto; }
     footer { position: fixed; left: 0; right: 0; bottom: max(12px, env(safe-area-inset-bottom)); margin: 0; z-index: 4; }
     .band {
       position: fixed; left: 0; right: 0; z-index: 10;
@@ -160,8 +167,6 @@
     .row { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 8px; width: min(100%, var(--w)); }
     .r1 { --n: 3; --w: 380px; --f: 13px; --h: 46px; --ic: 20px; }
     .r2 { --n: 2; --w: 262px; --f: 12.5px; --h: 42px; --ic: 18px; }
-    .r3 { --n: 3; --w: 380px; --f: 11.5px; --h: 46px; --ic: 18px; }
-    .r4 { --n: 2; --w: 236px; --f: 11px; --h: 38px; --ic: 15px; }
     li.section { display: none; }
     .band a.link {
       width: 100%; height: 100%; min-height: var(--h); padding: 6px 10px; gap: 7px;
@@ -179,7 +184,7 @@
   </style>
 </head>
 <body>
-  <div class="bg"><canvas id="bolts"></canvas><video id="bgvideo" src="bg.mp4" autoplay muted loop playsinline preload="auto"></video></div>
+  <div class="bg"><canvas id="bolts"></canvas><div id="glow" class="touch-glow"></div><video id="bgvideo" src="bg.mp4" autoplay muted loop playsinline preload="auto"></video></div>
   <main>
     <img class="avatar" src="avatar.jpg" alt="Hassan Aldajah">
     <h1>Hassan Aldajah</h1>
@@ -210,11 +215,11 @@
       // Projects
       { title: "GitHub",       url: "https://github.com/hassanaldajah",     icon: "github",   color: "#ffffff", section: "Projects" },
       { title: "Portfolio",    url: "https://hassanaldajah.github.io/hassan-aldajah-portfolio/", icon: "web",      color: "#e5484d" },
-      { title: "Nashmi Agent", url: "https://nashmiagent.streamlit.app",     logo: "logos/nashmi.png",    brand: "#e5484d" },
+      { title: "Nashmi", url: "https://nashmiagent.streamlit.app",     logo: "logos/nashmi.png",    brand: "#e5484d" },
       { title: "SafeShare",    url: "https://safe-share-gold.vercel.app",    logo: "logos/safeshare.svg", brand: "#10b981" },
-      { title: "FC (File Converter)",   url: "https://github.com/hassanaldajah/FC/releases/latest",     logo: "logos/fc.png",     brand: "#a855f7",
+      { title: "FC",   url: "https://github.com/hassanaldajah/FC/releases/latest",     logo: "logos/fc.png",     brand: "#a855f7",
         ring: "conic-gradient(from 210deg, #c04cff, #4cc9ff, #3be07a, #c04cff)" },
-      { title: "pixels (Image Studio)", url: "https://github.com/hassanaldajah/pixels/releases/latest", logo: "logos/pixels.png", brand: "#1e90ff" },
+      { title: "pixels", url: "https://github.com/hassanaldajah/pixels/releases/latest", logo: "logos/pixels.png", brand: "#1e90ff" },
     ];
     // =======================================
 
@@ -407,6 +412,29 @@
       requestAnimationFrame(frame);
     })();
 
+    // Blue glow wherever a finger / the pointer is, except over the video picture, the links (they glow in their
+    // own colour), the avatar and the sound button (it has its own blue glow).
+    (() => {
+      const glow = document.getElementById("glow"), video = document.getElementById("bgvideo");
+      function onPicture(x, y) {   // the video is letterboxed (object-fit: contain), so test the picture itself, not the element
+        const r = video.getBoundingClientRect(), vw = video.videoWidth || 576, vh = video.videoHeight || 654;
+        const k = Math.min(r.width / vw, r.height / vh), w = vw * k, h = vh * k;
+        const l = r.left + (r.width - w) / 2, t = r.top + (r.height - h) / 2;
+        return x >= l && x <= l + w && y >= t && y <= t + h;
+      }
+      function move(e) {
+        glow.style.transform = `translate3d(${e.clientX}px,${e.clientY}px,0)`;
+        const ui = e.target.closest && e.target.closest("a.link, .avatar, #sound");
+        glow.style.opacity = ui || onPicture(e.clientX, e.clientY) ? 0 : 1;
+      }
+      const hide = () => { glow.style.opacity = 0; };
+      addEventListener("pointerdown", move);
+      addEventListener("pointermove", move);
+      addEventListener("pointerup", e => { if (e.pointerType !== "mouse") hide(); });
+      addEventListener("pointercancel", hide);
+      document.documentElement.addEventListener("mouseleave", hide);
+    })();
+
     // Put the links in their rows: 3 + 2 above the video, 3 + 2 below it
     (() => {
       const lis = [...list.querySelectorAll("li:not(.section)")];
@@ -423,7 +451,7 @@
         document.body.append(ul);
       };
       band("top", [["r1", ["LinkedIn", "Facebook", "VSCO"]], ["r2", ["Gmail", "GitHub"]]]);
-      band("bottom", [["r3", ["Nashmi Agent", "SafeShare", "pixels (Image Studio)"]], ["r4", ["Portfolio", "FC (File Converter)"]]]);
+      band("bottom", [["r1", ["Nashmi", "SafeShare", "pixels"]], ["r2", ["Portfolio", "FC"]]]);
       list.remove();
     })();
   </script>
