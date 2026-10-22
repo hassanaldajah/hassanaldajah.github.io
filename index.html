@@ -89,9 +89,9 @@
     li { animation: rise .55s ease-out both; animation-delay: calc(.2s + var(--i) * .07s); }
     a.link {
       position: relative; overflow: hidden;
-      display: flex; align-items: center; justify-content: flex-start; gap: 10px;
-      /* Same left edge on every row, so the icons and the labels each line up in one column */
-      padding: 14px 20px 14px max(20px, calc(50% - 104px));
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      /* Labels sit on the exact centre of the button; the icons are pinned in one straight column (see below) */
+      padding: 14px 56px;
       border-radius: 999px;
       background: var(--card);
       border: 1px solid var(--border);
@@ -117,6 +117,7 @@
     a.link:hover::after, a.link:focus-visible::after { left: 120%; }
     a.link:active { transform: scale(.98); }
     a.link svg { width: 20px; height: 20px; flex-shrink: 0; fill: currentColor; transition: transform .25s; }
+    a.link > svg, a.link > .logo { position: absolute; left: 24px; top: 0; bottom: 0; margin: auto 0; }
     a.link:hover svg { transform: scale(1.15); }
 
     /* Project links: round logo with a ring in the project's own colours */
