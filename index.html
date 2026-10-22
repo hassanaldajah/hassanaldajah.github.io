@@ -89,8 +89,9 @@
     li { animation: rise .55s ease-out both; animation-delay: calc(.2s + var(--i) * .07s); }
     a.link {
       position: relative; overflow: hidden;
-      display: flex; align-items: center; justify-content: center; gap: 10px;
-      padding: 14px 20px;
+      display: flex; align-items: center; justify-content: flex-start; gap: 10px;
+      /* Same left edge on every row, so the icons and the labels each line up in one column */
+      padding: 14px 20px 14px max(20px, calc(50% - 104px));
       border-radius: 999px;
       background: var(--card);
       border: 1px solid var(--border);
@@ -118,17 +119,16 @@
     a.link:hover svg { transform: scale(1.15); }
 
     /* Project links: round logo with a ring in the project's own colours */
-    a.link.project { padding: 9px 20px; }
     a.link.project:hover, a.link.project:focus-visible {
       border-color: var(--brand);
       box-shadow: 0 0 20px var(--glow);
     }
     .logo {
       flex-shrink: 0;
-      width: 44px; height: 44px; padding: 2px;
+      width: 20px; height: 20px; padding: 1.5px;
       border-radius: 50%;
       background: var(--ring);
-      box-shadow: 0 0 12px var(--glow);
+      box-shadow: 0 0 8px var(--glow);
       transition: transform .25s;
     }
     .logo img { display: block; width: 100%; height: 100%; border-radius: 50%; background: #0b0b0d; }
@@ -225,7 +225,7 @@
         a.style.setProperty("--brand", l.brand);
         a.style.setProperty("--glow", l.brand + "73");
         a.style.setProperty("--ring", l.ring || l.brand);
-        a.innerHTML = `<span class="logo"><img src="${l.logo}" alt="" width="40" height="40" loading="lazy"></span>`;
+        a.innerHTML = `<span class="logo"><img src="${l.logo}" alt="" width="17" height="17" loading="lazy"></span>`;
       } else {
         a.innerHTML = `<svg viewBox="${VIEWBOX[l.icon] || "0 0 24 24"}" aria-hidden="true" style="color:${l.color || "currentColor"}">${ICONS[l.icon] || ICONS.web}</svg>`;
       }
