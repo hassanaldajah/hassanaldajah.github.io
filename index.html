@@ -124,6 +124,23 @@
 
     footer { margin-top: 40px; color: var(--muted); font-size: 12px; animation: rise .6s .8s ease-out both; }
 
+    /* Storm sound on/off (starts off: browsers block autoplay, and nobody wants a surprise thunderclap) */
+    .sound {
+      position: fixed; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 5;
+      width: 44px; height: 44px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: var(--card); border: 1px solid var(--border);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      color: var(--muted); cursor: pointer;
+      transition: border-color .25s, color .25s, box-shadow .25s;
+    }
+    .sound svg { width: 20px; height: 20px; fill: currentColor; }
+    .sound:hover, .sound:focus-visible { border-color: var(--accent); color: var(--text); box-shadow: 0 0 16px rgba(106, 168, 255, .45); outline: none; }
+    .sound[aria-pressed="true"] { color: var(--accent); border-color: rgba(106, 168, 255, .5); }
+    .sound .waves { display: none; }
+    .sound[aria-pressed="true"] .waves { display: inline; }
+    .sound[aria-pressed="true"] .slash { display: none; }
+
     @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
 
     @media (prefers-reduced-motion: reduce) {
@@ -139,6 +156,13 @@
     <ul id="links"></ul>
     <footer>© <span id="year"></span> Hassan Aldajah</footer>
   </main>
+  <button id="sound" class="sound" type="button" aria-pressed="false" aria-label="Turn storm sound on" title="Storm sound">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 9v6h4l5 4V5L7 9H3z"/>
+      <path class="waves" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+      <path class="slash" d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
 
 
   <script>
@@ -376,6 +400,7 @@
           lights: [{ x: x0, y: y0 + .08 * h, s: 1.1, r: 2.8 }, { x: m[0], y: m[1] * .6, s: .5, r: 3.4 }],
           glow: [{ x: x0, y: y0 + .05 * h, r: 170 * scale }]
         });
+        dispatchEvent(new CustomEvent("storm", { detail: { kind: "strike", x: x0 / w } }));   // the sound listens for this
       }
 
       // a horizontal arc crawling through the clouds
@@ -390,6 +415,7 @@
           lights: [{ x: (x0 + x1) / 2, y: (y0 + y1) / 2, s: .55, r: 4.6 }],
           glow: []
         });
+        dispatchEvent(new CustomEvent("storm", { detail: { kind: "arc", x: (x0 + x1) / 2 / w } }));
       }
 
       function pulse(b, age) {  // return strokes: a bright hit, then quick flickers
@@ -449,6 +475,143 @@
       addEventListener("resize", resize);
       resize();
       if (!reduce) requestAnimationFrame(frame);
+    })();
+
+    // Storm sound, synthesised with Web Audio (no audio files): a bed of wind and rain, plus a thunder roll after
+    // every strike, panned to where it hit and arriving a little late (the further away, the later).
+    (() => {
+      const btn = document.getElementById("sound");
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) { btn.remove(); return; }
+      const rand = (a, b) => a + Math.random() * (b - a);
+      const LEVEL = .6;      // volume once the fade-in is done: medium, not loud
+      const START = .03;     // where it starts: very quiet
+      const FADE_IN = 12;    // seconds to rise from START to LEVEL, as a steady (perceptually even) swell
+      let ac, master, bus, brown, white, on = false;
+
+      function noise(seconds, brownian) {
+        const len = Math.floor(ac.sampleRate * seconds), buf = ac.createBuffer(2, len, ac.sampleRate);
+        for (let c = 0; c < 2; c++) {
+          const d = buf.getChannelData(c);
+          let last = 0;
+          for (let i = 0; i < len; i++) {
+            const v = Math.random() * 2 - 1;
+            if (brownian) { last = (last + .02 * v) / 1.02; d[i] = last * 3.5; } else d[i] = v;
+          }
+        }
+        return buf;
+      }
+
+      function setup() {
+        ac = new AC();
+        const comp = ac.createDynamicsCompressor();   // a gentle limiter: only tames the loudest peaks, so thunder still stands out from the wind
+        comp.threshold.value = -8; comp.knee.value = 6; comp.ratio.value = 6; comp.attack.value = .002; comp.release.value = .2;
+        master = ac.createGain(); master.gain.value = 0;
+        master.connect(comp); comp.connect(ac.destination);
+        brown = noise(10, true); white = noise(6, false);
+
+        // Thunder goes through a soft saturator. It adds harmonics of the deep rumble, which a phone speaker can play
+        bus = ac.createWaveShaper(); bus.oversample = "2x";
+        const curve = new Float32Array(1024);
+        for (let i = 0; i < curve.length; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(2.2 * x) / Math.tanh(2.2); }
+        bus.curve = curve; bus.connect(master);
+
+        // wind: brown noise through a low-pass whose cutoff drifts slowly, like gusts
+        const wind = ac.createBufferSource(); wind.buffer = brown; wind.loop = true;
+        const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 380;
+        const gust = ac.createOscillator(); gust.frequency.value = .07;
+        const gustDepth = ac.createGain(); gustDepth.gain.value = 170;
+        gust.connect(gustDepth); gustDepth.connect(lp.frequency);
+        const windGain = ac.createGain(); windGain.gain.value = .2;
+        wind.connect(lp); lp.connect(windGain); windGain.connect(master);
+
+        // the mid-range whoosh of the gusts: the deep wind alone would vanish on a phone speaker
+        const air = ac.createBufferSource(); air.buffer = white; air.loop = true;
+        const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 550; bp.Q.value = .6;
+        const airGain = ac.createGain(); airGain.gain.value = .03;
+        const airSwell = ac.createGain(); airSwell.gain.value = .025;
+        gust.connect(airSwell); airSwell.connect(airGain.gain);
+        air.connect(bp); bp.connect(airGain); airGain.connect(master);
+        air.start();
+
+        // rain: a soft hiss
+        const rain = ac.createBufferSource(); rain.buffer = white; rain.loop = true;
+        const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 2200;
+        const hiss = ac.createBiquadFilter(); hiss.type = "lowpass"; hiss.frequency.value = 8000;
+        const rainGain = ac.createGain(); rainGain.gain.value = .03;
+        rain.connect(hp); hp.connect(hiss); hiss.connect(rainGain); rainGain.connect(master);
+
+        wind.start(); rain.start(); gust.start();
+      }
+
+      // the sharp "crack" of a close strike
+      function crack(t0) {
+        const src = ac.createBufferSource(); src.buffer = white;
+        const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1500;
+        const g = ac.createGain();
+        g.gain.setValueAtTime(.0001, t0);
+        g.gain.exponentialRampToValueAtTime(.5, t0 + .01);
+        g.gain.exponentialRampToValueAtTime(.0001, t0 + .22);
+        src.connect(hp); hp.connect(g); g.connect(master);
+        src.start(t0, rand(0, 5)); src.stop(t0 + .3);
+      }
+
+      function thunder(kind, x) {
+        if (!on) return;
+        const big = kind === "strike";
+        const delay = big ? rand(.15, 1.3) : rand(.4, 1.8);
+        const t0 = ac.currentTime + delay, dur = big ? rand(3.5, 6) : rand(1.6, 2.8);
+        const peak = (big ? 1.6 : .6) * (delay < .5 ? 1 : .8);
+        const src = ac.createBufferSource(); src.buffer = brown;
+        const lp = ac.createBiquadFilter(); lp.type = "lowpass";
+        lp.frequency.setValueAtTime(big ? 1200 : 600, t0);
+        lp.frequency.exponentialRampToValueAtTime(150, t0 + dur);     // the rumble sinks as it rolls away
+        const g = ac.createGain();
+        g.gain.setValueAtTime(.0001, t0);
+        g.gain.exponentialRampToValueAtTime(peak, t0 + .05);
+        g.gain.exponentialRampToValueAtTime(peak * .3, t0 + .4);
+        g.gain.exponentialRampToValueAtTime(peak * .7, t0 + .9 + rand(0, .5));   // and swells again
+        if (big) g.gain.exponentialRampToValueAtTime(peak * .12, t0 + dur * .6);  // a long tail
+        g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+        src.connect(lp); lp.connect(g);
+        const body = ac.createBufferSource(); body.buffer = white; body.loop = true;   // mid-range body, so phones hear it too
+        const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 320; bp.Q.value = .6;
+        const bodyGain = ac.createGain(); bodyGain.gain.value = .4;
+        body.connect(bp); bp.connect(bodyGain); bodyGain.connect(g);
+        let out = g;
+        if (ac.createStereoPanner) {
+          const pan = ac.createStereoPanner();
+          pan.pan.value = Math.max(-1, Math.min(1, (x - .5) * 1.6));
+          g.connect(pan); out = pan;
+        }
+        out.connect(bus);
+        src.start(t0, rand(0, 3)); src.stop(t0 + dur + .2);
+        body.start(t0, rand(0, 5)); body.stop(t0 + dur + .2);
+        if (big && delay < .6) crack(t0);
+      }
+
+      btn.addEventListener("click", () => {
+        if (!ac) setup();
+        on = !on;
+        if (on) ac.resume();
+        const now = ac.currentTime;
+        master.gain.cancelScheduledValues(now);
+        const g0 = Math.max(master.gain.value, START);
+        master.gain.setValueAtTime(on ? g0 : master.gain.value, now);
+        if (on) {   // start quiet and swell slowly to LEVEL (same rate of rise if it was already part-way up)
+          master.gain.exponentialRampToValueAtTime(LEVEL, now + FADE_IN * Math.log(LEVEL / g0) / Math.log(LEVEL / START));
+        } else {    // quick fade out
+          master.gain.setTargetAtTime(0, now, .15);
+        }
+        if (!on) setTimeout(() => { if (!on) ac.suspend(); }, 700);
+        btn.setAttribute("aria-pressed", on);
+        btn.setAttribute("aria-label", on ? "Turn storm sound off" : "Turn storm sound on");
+      });
+      addEventListener("storm", e => thunder(e.detail.kind, e.detail.x));
+      document.addEventListener("visibilitychange", () => {   // no sound from a background tab
+        if (!ac) return;
+        if (document.hidden) ac.suspend(); else if (on) ac.resume();
+      });
     })();
   </script>
 </body>
