@@ -71,7 +71,7 @@
 
     /* ---- Avatar: plain photo, red shadow underneath on hover ---- */
     .avatar {
-      position: fixed; top: 16px; left: 16px; z-index: 200;
+      position: static; flex: 0 0 auto; z-index: 200;
       display: block;
       width: 52px; height: 52px; margin: 0;
       border-radius: 50%;
@@ -87,7 +87,7 @@
 
     /* ---- Name with a slow shine ---- */
     h1 {
-      position: fixed; top: 16px; left: 0; right: 0; z-index: 200; height: 52px; display: flex; align-items: center; justify-content: center; pointer-events: none;
+      position: static; height: 52px; display: flex; align-items: center; pointer-events: none;
       font-size: clamp(19px, 5.2vw, 26px); font-weight: 700; letter-spacing: .4px; white-space: nowrap;
       margin: 0;
       background: linear-gradient(100deg, #fff 40%, #9cc8ff 50%, #fff 60%);
@@ -96,6 +96,10 @@
       color: transparent;
       animation: rise .7s .1s ease-out both, shine 5s 1s linear infinite;
     }
+    /* photo and name sit together in the middle of the top edge */
+    .who { position: fixed; top: 16px; left: 0; right: 0; z-index: 200; display: flex; align-items: center; justify-content: center; gap: 12px; pointer-events: none; }
+    /* the name gives off the same light-blue glow as the sound button */
+    h1 { filter: drop-shadow(0 0 8px rgba(106, 168, 255, .6)) drop-shadow(0 0 18px rgba(106, 168, 255, .35)); }
     @keyframes shine { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 
     /* ---- Link buttons ---- */
@@ -237,8 +241,7 @@
     })();
   </script>
   <main>
-    <img class="avatar" src="avatar.jpg" alt="Hassan Aldajah">
-    <h1>Hassan Aldajah</h1>
+    <div class="who"><img class="avatar" src="avatar.jpg" alt="Hassan Aldajah"><h1>Hassan Aldajah</h1></div>
     <ul id="links"></ul>
     <footer>© <span id="year"></span> Hassan Aldajah</footer>
   </main>
