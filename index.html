@@ -88,13 +88,10 @@
     /* ---- Name with a slow shine ---- */
     h1 {
       position: static; height: 52px; display: flex; align-items: center; pointer-events: none;
-      font-size: clamp(19px, 5.2vw, 26px); font-weight: 700; letter-spacing: .4px; white-space: nowrap;
+      font-size: clamp(17px, 4.6vw, 23px); font-weight: 700; letter-spacing: .4px; white-space: nowrap;
       margin: 0;
-      background: linear-gradient(100deg, #fff 40%, #9cc8ff 50%, #fff 60%);
-      background-size: 250% 100%;
-      -webkit-background-clip: text; background-clip: text;
-      color: transparent;
-      animation: rise .7s .1s ease-out both, shine 5s 1s linear infinite;
+      color: #6aa8ff;   /* one solid blue, the sound button's */
+      animation: rise .7s .1s ease-out both;
     }
     /* photo and name sit together in the middle of the top edge */
     .who { position: fixed; top: 16px; left: 0; right: 0; z-index: 200; display: flex; align-items: center; justify-content: center; gap: 12px; pointer-events: none; }
@@ -201,7 +198,7 @@
     @media (min-width: 800px) and (orientation: landscape) {
       :root { --rt: 132px; --rb: 104px; }
       #top { top: 72px; }
-      h1 { font-size: 26px; }
+      h1 { font-size: 23px; }
       #bottom { bottom: 36px; }
       .band { flex-direction: row; justify-content: center; align-items: center; gap: 12px; }
       .row { width: var(--w); }
