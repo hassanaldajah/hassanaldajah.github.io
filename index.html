@@ -29,19 +29,19 @@
       overflow-x: hidden;
     }
 
-    /* ---- Background: the looping video, shown whole in the middle (it also carries the song); links float in the black bands above and below ---- */
+    /* ---- Background: the looping video, shown whole in the middle (it also carries the song); the links sit in rows above and below it ---- */
     .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #030409; }
     .bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-    /* screen blend: the video's black drops out, so the storm and lightning behind it show through and the picture comes out of them */
-    .bg video { mix-blend-mode: screen; position: absolute; left: 0; top: var(--rt, 0px); width: 100%; height: calc(100% - var(--rt, 0px) - var(--rb, 0px)); object-fit: contain; display: block; }
+    /* the video is opaque: the lightning is drawn behind it and only shows around it */
+    .bg video { position: absolute; left: 0; top: var(--rt, 0px); width: 100%; height: calc(100% - var(--rt, 0px) - var(--rb, 0px)); object-fit: contain; display: block; }
 
     main { width: 100%; max-width: 440px; text-align: center; }
 
     /* ---- Avatar: plain photo, red shadow underneath on hover ---- */
     .avatar {
-      position: fixed; top: 14px; left: 14px; z-index: 200;
+      position: fixed; top: 16px; left: 16px; z-index: 200;
       display: block;
-      width: 64px; height: 64px; margin: 0;
+      width: 52px; height: 52px; margin: 0;
       border-radius: 50%;
       object-fit: cover;
       box-shadow: 0 0 0 rgba(229, 72, 77, 0);
@@ -55,8 +55,8 @@
 
     /* ---- Name with a slow shine ---- */
     h1 {
-      position: fixed; top: 14px; left: 90px; z-index: 200; height: 64px; display: flex; align-items: center; pointer-events: none;
-      font-size: 20px; font-weight: 700; letter-spacing: .3px;
+      position: fixed; top: 16px; left: 80px; z-index: 200; height: 52px; display: flex; align-items: center; pointer-events: none;
+      font-size: 18px; font-weight: 700; letter-spacing: .3px;
       margin: 0;
       background: linear-gradient(100deg, #fff 40%, #9cc8ff 50%, #fff 60%);
       background-size: 250% 100%;
@@ -145,20 +145,31 @@
     .sound[aria-pressed="true"] .waves { display: inline; }
     .sound[aria-pressed="true"] .slash { display: none; }
 
-    /* ---- Layout: the video sits whole in the middle; 5 links in a band above it and 5 in a band below ---- */
-    :root { --rt: clamp(190px, 27vh, 240px); --rb: clamp(180px, 24vh, 200px); }   /* heights of the band above / below the video; the video fills what is left */
+    /* ---- Layout: the video sits whole in the middle; two rows of links above it (3 + 2) and two below (3 + 2) ---- */
+    :root { --rt: clamp(190px, 27vh, 230px); --rb: clamp(150px, 20vh, 170px); }   /* heights of the space above / below the video; the video fills what is left */
     body { overflow: hidden; }
     main { position: relative; z-index: 50; pointer-events: none; }
     footer { position: fixed; left: 0; right: 0; bottom: max(12px, env(safe-area-inset-bottom)); margin: 0; z-index: 4; }
     .band {
       position: fixed; left: 0; right: 0; z-index: 10;
-      display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; align-content: center; gap: 10px 8px; padding: 0 14px;
+      display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 14px;
     }
-    #top { top: 84px; }
+    #top { top: 82px; }
     #bottom { bottom: 36px; }
+    /* each row is a grid of equal-size buttons; the row sets their size (--n buttons, --w max width, --f font, --h height, --ic icon) */
+    .row { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 8px; width: min(100%, var(--w)); }
+    .r1 { --n: 3; --w: 380px; --f: 13px; --h: 46px; --ic: 20px; }
+    .r2 { --n: 2; --w: 262px; --f: 12.5px; --h: 42px; --ic: 18px; }
+    .r3 { --n: 3; --w: 380px; --f: 11.5px; --h: 46px; --ic: 18px; }
+    .r4 { --n: 2; --w: 236px; --f: 11px; --h: 38px; --ic: 15px; }
     li.section { display: none; }
-    .band a.link { padding: 10px 20px 10px 44px; font-size: 14px; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
-    .band a.link > svg, .band a.link > .logo { left: 15px; }
+    .band a.link {
+      width: 100%; height: 100%; min-height: var(--h); padding: 6px 10px; gap: 7px;
+      font-size: var(--f); line-height: 1.15; text-align: left; white-space: normal;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .band a.link > svg, .band a.link > .logo { position: static; margin: 0; flex: 0 0 auto; }
+    .band a.link svg, .band .logo { width: var(--ic); height: var(--ic); }
 
     @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
 
@@ -287,8 +298,8 @@
       });
     })();
 
-    // Dark-navy lightning on the black background. It is drawn behind the video, whose black drops out (screen
-    // blend), so the bolts flash through the dark parts of the picture. Skipped when reduced motion is requested.
+    // Dark-navy lightning on the black background. It is drawn behind the video (which is opaque), so the bolts
+    // flash around it and never across it. Skipped when reduced motion is requested.
     (() => {
       if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       const canvas = document.getElementById("bolts"), ctx = canvas.getContext("2d");
@@ -331,10 +342,13 @@
         }
       }
 
-      // a bolt from the top of the screen down towards the bottom
+      // a bolt that starts on a random screen edge or corner and reaches in towards the middle
       function strike(now) {
-        const x0 = rand(.1 * w, .9 * w), y0 = rand(-10, .1 * h);
-        const x1 = x0 + rand(-.22 * w, .22 * w), y1 = rand(.5 * h, 1.02 * h);
+        const side = Math.floor(rand(0, 4));    // 0 top, 1 bottom, 2 left, 3 right
+        const x0 = side < 2 ? rand(0, w) : side === 2 ? rand(-10, .08 * w) : rand(.92 * w, w + 10);
+        const y0 = side === 0 ? -10 : side === 1 ? h + 10 : rand(0, h);
+        const k = rand(.3, .6);
+        const x1 = x0 + (w / 2 - x0) * k + rand(-.12 * w, .12 * w), y1 = y0 + (h / 2 - y0) * k + rand(-.1 * h, .1 * h);
         const len = Math.hypot(x1 - x0, y1 - y0), main = jagged(x0, y0, x1, y1, len * .3, 6);
         const paths = [{ pts: main, w: 1 }];
         branches(main, len, paths, .4, .5);
@@ -393,17 +407,23 @@
       requestAnimationFrame(frame);
     })();
 
-    // Split the links into two static bands: the first 5 above the video, the rest below it
+    // Put the links in their rows: 3 + 2 above the video, 3 + 2 below it
     (() => {
       const lis = [...list.querySelectorAll("li:not(.section)")];
-      const band = (id, items) => {
-        const ul = document.createElement("ul");
+      const by = title => lis.find(li => li.firstElementChild.textContent.trim() === title);
+      const band = (id, rows) => {
+        const ul = document.createElement("div");
         ul.id = id; ul.className = "band";
-        ul.append(...items);
+        for (const [cls, titles] of rows) {
+          const row = document.createElement("ul");
+          row.className = "row " + cls;
+          row.append(...titles.map(by).filter(Boolean));
+          ul.append(row);
+        }
         document.body.append(ul);
       };
-      band("top", lis.slice(0, 5));
-      band("bottom", lis.slice(5));
+      band("top", [["r1", ["LinkedIn", "Facebook", "VSCO"]], ["r2", ["Gmail", "GitHub"]]]);
+      band("bottom", [["r3", ["Nashmi Agent", "SafeShare", "pixels (Image Studio)"]], ["r4", ["Portfolio", "FC (File Converter)"]]]);
       list.remove();
     })();
   </script>
