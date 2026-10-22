@@ -117,7 +117,7 @@
     a.link:hover::after, a.link:focus-visible::after { left: 120%; }
     a.link:active { transform: scale(.98); }
     a.link svg { width: 20px; height: 20px; flex-shrink: 0; fill: currentColor; transition: transform .25s; }
-    a.link > svg, a.link > .logo { position: absolute; left: 24px; top: 0; bottom: 0; margin: auto 0; }
+    a.link > svg, a.link > .logo { position: absolute; left: var(--icon-left, 24px); top: 0; bottom: 0; margin: auto 0; }
     a.link:hover svg { transform: scale(1.15); }
 
     /* Project links: round logo with a ring in the project's own colours */
@@ -234,6 +234,18 @@
       li.append(a);
       list.append(li);
     });
+    // Pin every icon in one straight column, 12px to the left of the widest label (labels stay centred)
+    function placeIcons() {
+      let widest = 0;
+      list.querySelectorAll("a.link").forEach(a => {
+        const range = document.createRange();
+        range.selectNodeContents(a.lastChild);
+        widest = Math.max(widest, range.getBoundingClientRect().width);
+      });
+      list.style.setProperty("--icon-left", `max(20px, calc(50% - ${widest / 2 + 12 + 20}px))`);
+    }
+    placeIcons();
+    document.fonts.ready.then(placeIcons); // re-measure once Poppins has loaded
     document.getElementById("year").textContent = new Date().getFullYear();
 
     // Soft embers drifting up the background
