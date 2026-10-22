@@ -9,13 +9,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0b0b0d;
-      --card: rgba(24, 24, 27, .72);
+      --bg: #030409;
+      --card: rgba(10, 11, 17, .8);
       --border: rgba(255, 255, 255, .08);
       --text: #f4f4f5;
       --muted: #a1a1aa;
-      --accent: #e5484d;
-      --accent-deep: #8f1d22;
+      --accent: #6aa8ff;
+      --accent-deep: #1f3f8f;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -29,31 +29,9 @@
       overflow-x: hidden;
     }
 
-    /* ---- Background: slow drifting red glows + floating embers ---- */
-    .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-    .bg span {
-      position: absolute; border-radius: 50%; filter: blur(90px); opacity: .5;
-      will-change: transform;
-    }
-    .bg span:nth-child(1) {
-      width: 480px; height: 480px; top: -180px; left: -120px;
-      background: #8f1d22;
-      animation: float1 22s ease-in-out infinite alternate;
-    }
-    .bg span:nth-child(2) {
-      width: 420px; height: 420px; bottom: -160px; right: -140px;
-      background: #6b1419;
-      animation: float2 26s ease-in-out infinite alternate;
-    }
-    .bg span:nth-child(3) {
-      width: 300px; height: 300px; top: 40%; left: 50%; margin-left: -150px;
-      background: #3d0c10; opacity: .7;
-      animation: float3 30s ease-in-out infinite alternate;
-    }
-    #embers { position: absolute; inset: 0; width: 100%; height: 100%; }
-    @keyframes float1 { 50% { transform: translate(140px, 120px) scale(1.15); } 100% { transform: translate(60px, 260px) scale(.9); } }
-    @keyframes float2 { 50% { transform: translate(-160px, -100px) scale(1.2); } 100% { transform: translate(-40px, -240px) scale(1); } }
-    @keyframes float3 { 50% { transform: translate(-120px, 80px) scale(1.3); } 100% { transform: translate(110px, -60px) scale(.85); } }
+    /* ---- Background: black storm clouds (WebGL) with lightning (2D canvas on top) ---- */
+    .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #030409; }
+    .bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
     main { width: 100%; max-width: 440px; text-align: center; }
 
@@ -69,14 +47,14 @@
     }
     .avatar:hover {
       transform: translateY(-4px);
-      box-shadow: 0 18px 36px -6px rgba(229, 72, 77, .65);
+      box-shadow: 0 18px 36px -6px rgba(106, 168, 255, .55);
     }
 
     /* ---- Name with a slow shine ---- */
     h1 {
       font-size: 26px; font-weight: 700; letter-spacing: .3px;
       margin-bottom: 30px;
-      background: linear-gradient(100deg, #fff 40%, #ff8a8e 50%, #fff 60%);
+      background: linear-gradient(100deg, #fff 40%, #9cc8ff 50%, #fff 60%);
       background-size: 250% 100%;
       -webkit-background-clip: text; background-clip: text;
       color: transparent;
@@ -110,7 +88,7 @@
     /* --brand / --glow are set per link from its icon colour (see the script) */
     a.link:hover, a.link:focus-visible {
       border-color: var(--brand, var(--accent));
-      box-shadow: 0 0 20px var(--glow, rgba(229, 72, 77, .45));
+      box-shadow: 0 0 20px var(--glow, rgba(106, 168, 255, .45));
       transform: translateY(-3px) scale(1.015);
       outline: none;
     }
@@ -141,7 +119,7 @@
     }
     li.section::before, li.section::after {
       content: ""; flex: 1; height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(229,72,77,.5), transparent);
+      background: linear-gradient(90deg, transparent, rgba(106,168,255,.5), transparent);
     }
 
     footer { margin-top: 40px; color: var(--muted); font-size: 12px; animation: rise .6s .8s ease-out both; }
@@ -154,7 +132,7 @@
   </style>
 </head>
 <body>
-  <div class="bg"><span></span><span></span><span></span><canvas id="embers"></canvas></div>
+  <div class="bg"><canvas id="sky"></canvas><canvas id="bolts"></canvas></div>
   <main>
     <img class="avatar" src="avatar.jpg" alt="Hassan Aldajah">
     <h1>Hassan Aldajah</h1>
@@ -248,51 +226,229 @@
     document.fonts.ready.then(placeIcons); // re-measure once Poppins has loaded
     document.getElementById("year").textContent = new Date().getFullYear();
 
-    // Soft embers drifting up the background
+    // Black storm clouds with lightning. The clouds are a WebGL shader (animated fractal noise) that gets lit
+    // from inside around each strike; the bolts are drawn on a second canvas on top.
     (() => {
-      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      const canvas = document.getElementById("embers");
-      const ctx = canvas.getContext("2d");
+      const sky = document.getElementById("sky");
+      const boltCanvas = document.getElementById("bolts");
+      const ctx = boltCanvas.getContext("2d");
+      const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      let w, h, embers = [];
+      const rand = (a, b) => a + Math.random() * (b - a);
+
+      const VERT = "attribute vec2 p; void main() { gl_Position = vec4(p, 0., 1.); }";
+      const FRAG = `
+        #ifdef GL_FRAGMENT_PRECISION_HIGH
+        precision highp float;
+        #else
+        precision mediump float;
+        #endif
+        uniform vec2 uRes;
+        uniform float uTime;
+        uniform float uAmb;
+        uniform vec4 uFl[4];            // x, y (0..1, y down), intensity, falloff
+
+        float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+        float noise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3. - 2. * f);
+          return mix(mix(hash(i), hash(i + vec2(1., 0.)), f.x), mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), f.x), f.y);
+        }
+        const mat2 M = mat2(1.6, 1.2, -1.2, 1.6);
+        float fbm5(vec2 p) { float v = 0., a = .5; for (int i = 0; i < 5; i++) { v += a * noise(p); p = M * p; a *= .5; } return v; }
+        float fbm4(vec2 p) { float v = 0., a = .5; for (int i = 0; i < 4; i++) { v += a * noise(p); p = M * p; a *= .5; } return v; }
+
+        void main() {
+          vec2 uv = gl_FragCoord.xy / uRes; uv.y = 1. - uv.y;
+          float asp = uRes.x / uRes.y;
+          vec2 p = vec2(uv.x * asp, uv.y) * 1.7;
+          float t = uTime;
+
+          // billowing, domain-warped clouds rolling sideways
+          vec2 q = vec2(fbm4(p + vec2(t * .035, 0.)), fbm4(p + vec2(5.2, 1.3) - vec2(0., t * .025)));
+          vec2 w = p + 1.25 * q + vec2(-t * .05, t * .01);
+          float d  = fbm5(w);
+          float d2 = fbm4(w + vec2(.05, -.08));                 // sample towards the light, for billow shading
+          float n  = fbm4(p * 1.9 + vec2(-t * .08, 3.1) + q);   // fine detail layer, moves faster
+
+          float dens  = smoothstep(.30, .72, d);                 // 0 = gap between clouds, 1 = thick cloud
+          float shade = clamp((d - d2) * 8. + .5, 0., 1.);
+
+          vec3 col = mix(vec3(.008, .011, .026), vec3(.085, .095, .135), dens);
+          col += vec3(.075, .088, .135) * shade * dens;
+          col += vec3(.020, .026, .042) * smoothstep(.4, .85, n) * dens;
+
+          // light from the lightning scattering through the cloud
+          float lit = 0.;
+          for (int i = 0; i < 4; i++) {
+            vec2 dv = (uv - uFl[i].xy) * vec2(asp, 1.);
+            lit += uFl[i].z * exp(-length(dv) * uFl[i].w);
+          }
+          vec3 glow = vec3(.46, .62, 1.) * lit * (.22 + .78 * dens) * (.5 + 1.1 * shade) * (.65 + .7 * n);
+          col += glow / (1. + glow * 1.3);                       // soft knee so a strike never blows out the whole sky
+          col += vec3(.20, .30, .60) * uAmb * dens * .10;
+
+          col *= 1. - .55 * dot(uv - .5, uv - .5);                // vignette
+          gl_FragColor = vec4(col, 1.);
+        }`;
+
+      let gl = null, uRes, uTime, uAmb, uFl;
+      try {
+        gl = sky.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" });
+        if (gl) {
+          const mk = (type, src) => {
+            const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+            if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+            return s;
+          };
+          const prog = gl.createProgram();
+          gl.attachShader(prog, mk(gl.VERTEX_SHADER, VERT));
+          gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, FRAG));
+          gl.linkProgram(prog); gl.useProgram(prog);
+          gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+          const loc = gl.getAttribLocation(prog, "p");
+          gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+          uRes = gl.getUniformLocation(prog, "uRes"); uTime = gl.getUniformLocation(prog, "uTime");
+          uAmb = gl.getUniformLocation(prog, "uAmb"); uFl = gl.getUniformLocation(prog, "uFl");
+        }
+      } catch (e) { gl = null; console.warn("Storm clouds: WebGL unavailable, using a flat sky", e); }
+
+      let w, h, scale, bolts = [], started = false, nextStrike = 0, nextArc = 0;
+      const lights = new Float32Array(16);
 
       function resize() {
-        w = canvas.clientWidth; h = canvas.clientHeight;
-        canvas.width = w * dpr; canvas.height = h * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const count = Math.round(Math.min(60, (w * h) / 16000));
-        embers = Array.from({ length: count }, () => spawn(true));
-      }
-      function spawn(anywhere) {
-        return {
-          x: Math.random() * w,
-          y: anywhere ? Math.random() * h : h + 10,
-          r: Math.random() * 1.8 + .6,
-          speed: Math.random() * .35 + .15,
-          sway: Math.random() * 1.5 + .5,
-          phase: Math.random() * Math.PI * 2,
-          alpha: Math.random() * .5 + .2,
-          hue: Math.random() < .75 ? "255, 110, 100" : "255, 220, 200"
-        };
-      }
-      function frame(t) {
-        ctx.clearRect(0, 0, w, h);
-        for (const e of embers) {
-          e.y -= e.speed;
-          const x = e.x + Math.sin(t / 2000 + e.phase) * e.sway * 6;
-          const fade = Math.min(1, e.y / (h * .25));
-          ctx.beginPath();
-          ctx.arc(x, e.y, e.r, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${e.hue}, ${e.alpha * fade})`;
-          ctx.shadowBlur = 8; ctx.shadowColor = `rgba(${e.hue}, .8)`;
-          ctx.fill();
-          if (e.y < -10) Object.assign(e, spawn(false));
+        w = boltCanvas.clientWidth; h = boltCanvas.clientHeight;
+        boltCanvas.width = w * dpr; boltCanvas.height = h * dpr;
+        scale = Math.min(1.3, Math.max(.7, w / 700));
+        // the clouds are soft, so render them small and let the browser stretch them
+        const q = Math.min(.5, 720 / w);
+        sky.width = Math.max(2, Math.round(w * q)); sky.height = Math.max(2, Math.round(h * q));
+        if (gl) { gl.viewport(0, 0, sky.width, sky.height); gl.uniform2f(uRes, sky.width, sky.height); }
+        else {
+          const c = sky.getContext("2d"), g = c.createRadialGradient(sky.width / 2, sky.height / 2, 0, sky.width / 2, sky.height / 2, sky.height);
+          g.addColorStop(0, "#0b0e1a"); g.addColorStop(1, "#030409");
+          c.fillStyle = g; c.fillRect(0, 0, sky.width, sky.height);
         }
+        if (reduce) draw(0, []);
+      }
+
+      // Lightning shapes ------------------------------------------------------------
+      function jagged(x0, y0, x1, y1, disp, depth) {
+        let pts = [[x0, y0], [x1, y1]];
+        for (let d = 0; d < depth; d++) {
+          const out = [pts[0]];
+          for (let i = 0; i < pts.length - 1; i++) {
+            const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+            const len = Math.hypot(bx - ax, by - ay) || 1, o = (Math.random() - .5) * disp;
+            out.push([(ax + bx) / 2 - (by - ay) / len * o, (ay + by) / 2 + (bx - ax) / len * o], [bx, by]);
+          }
+          pts = out; disp *= .55;
+        }
+        return pts;
+      }
+
+      function branches(main, mainLen, paths, chance, wid) {
+        for (let i = 3; i < main.length - 2; i += 2) {
+          if (Math.random() > chance) continue;
+          const [x, y] = main[i], [px, py] = main[i - 2];
+          const base = Math.atan2(y - py, x - px) + (Math.random() < .5 ? -1 : 1) * rand(.35, 1.0);
+          const len = mainLen * rand(.06, .2);
+          const pts = jagged(x, y, x + Math.cos(base) * len, y + Math.sin(base) * len, len * .45, 4);
+          paths.push({ pts, w: wid });
+          if (Math.random() < .3) {
+            const [mx, my] = pts[pts.length >> 1], a = base + rand(-.9, .9), l = len * rand(.3, .6);
+            paths.push({ pts: jagged(mx, my, mx + Math.cos(a) * l, my + Math.sin(a) * l, l * .5, 3), w: wid * .6 });
+          }
+        }
+      }
+
+      // a bolt from the cloud ceiling down towards the ground
+      function strike(now) {
+        const x0 = rand(.1 * w, .9 * w), y0 = rand(-10, .1 * h);
+        const x1 = x0 + rand(-.22 * w, .22 * w), y1 = rand(.5 * h, 1.02 * h);
+        const len = Math.hypot(x1 - x0, y1 - y0), main = jagged(x0, y0, x1, y1, len * .3, 6);
+        const paths = [{ pts: main, w: 1 }];
+        branches(main, len, paths, .4, .5);
+        const m = main[main.length >> 1];
+        bolts.push({
+          born: now, life: 620, decay: 55, strikes: [0, rand(60, 120), rand(170, 270)], scale, paths,
+          lights: [{ x: x0, y: y0 + .08 * h, s: 1.1, r: 2.8 }, { x: m[0], y: m[1] * .6, s: .5, r: 3.4 }],
+          glow: [{ x: x0, y: y0 + .05 * h, r: 170 * scale }]
+        });
+      }
+
+      // a horizontal arc crawling through the clouds
+      function arc(now) {
+        const x0 = rand(-.05 * w, .9 * w), y0 = rand(.03 * h, .6 * h), dir = Math.random() < .5 ? -1 : 1;
+        const len = rand(.15, .5) * w, x1 = x0 + dir * len, y1 = y0 + rand(-.07, .07) * h;
+        const main = jagged(x0, y0, x1, y1, len * .22, 6);
+        const paths = [{ pts: main, w: .55 }];
+        branches(main, len, paths, .5, .3);
+        bolts.push({
+          born: now, life: 330, decay: 42, strikes: [0, rand(50, 100)], scale, paths,
+          lights: [{ x: (x0 + x1) / 2, y: (y0 + y1) / 2, s: .55, r: 4.6 }],
+          glow: []
+        });
+      }
+
+      function pulse(b, age) {  // return strokes: a bright hit, then quick flickers
+        let v = 0;
+        for (const s of b.strikes) if (age >= s) v += Math.exp(-(age - s) / b.decay);
+        return Math.min(1, v);
+      }
+
+      function draw(now, active) {
+        const t = now / 1000;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        ctx.globalCompositeOperation = "lighter";
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
+        const ls = [];
+        for (const b of active) {
+          const k = pulse(b, now - b.born);
+          if (k < .01) continue;
+          for (const g of b.glow) {
+            const rg = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, g.r);
+            rg.addColorStop(0, `rgba(170,200,255,${.35 * k})`); rg.addColorStop(1, "rgba(80,120,255,0)");
+            ctx.fillStyle = rg; ctx.fillRect(g.x - g.r, g.y - g.r, g.r * 2, g.r * 2);
+          }
+          for (const p of b.paths) {
+            ctx.beginPath();
+            p.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+            const s = p.w * b.scale;
+            ctx.strokeStyle = `rgba(70,110,255,${.25 * k})`;   ctx.lineWidth = 16 * s; ctx.stroke();
+            ctx.strokeStyle = `rgba(140,185,255,${.65 * k})`;  ctx.lineWidth = 5.5 * s; ctx.stroke();
+            ctx.strokeStyle = `rgba(255,255,255,${k})`;        ctx.lineWidth = 2 * s;   ctx.stroke();
+          }
+          for (const L of b.lights) ls.push([L.x / w, L.y / h, L.s * k, L.r]);
+        }
+        if (gl) {
+          ls.sort((a, b) => b[2] - a[2]);
+          lights.fill(0);
+          for (let i = 0; i < 4 && i < ls.length; i++) lights.set(ls[i], i * 4);
+          gl.uniform1f(uTime, t * 1.3 + 40);
+          gl.uniform1f(uAmb, .5 + .5 * Math.sin(t * .8));
+          gl.uniform4fv(uFl, lights);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+      }
+
+      function frame(now) {
+        if (!started) { started = true; nextStrike = now + 900; nextArc = now + 250; }
+        if (now > nextArc) { arc(now); nextArc = now + rand(350, 1100); }
+        if (now > nextStrike) {
+          strike(now);
+          nextStrike = now + (Math.random() < .3 ? rand(250, 500) : rand(1800, 4200));   // sometimes a double strike
+        }
+        bolts = bolts.filter(b => now - b.born < b.life);
+        draw(now, bolts);
         requestAnimationFrame(frame);
       }
+
       addEventListener("resize", resize);
       resize();
-      requestAnimationFrame(frame);
+      if (!reduce) requestAnimationFrame(frame);
     })();
   </script>
 </body>
