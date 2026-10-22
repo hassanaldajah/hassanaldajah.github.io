@@ -30,14 +30,18 @@
     }
 
     /* ---- Background: the looping video, shown whole in the middle (it also carries the song); the links sit in rows above and below it ---- */
-    .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #030409; }
-    .bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-    /* blue glow under the finger / pointer, same blue as the sound button's glow */
-    .touch-glow {
-      position: absolute; left: 0; top: 0; width: 200px; height: 200px; margin: -100px 0 0 -100px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(106, 168, 255, .45) 0, rgba(106, 168, 255, .45) 30%, rgba(106, 168, 255, 0) 70%);   /* .45 = the sound button glow */
-      opacity: 0; transition: opacity .35s ease; will-change: transform, opacity;
+    /* blue grid (40px squares, like the Nashmi site's red one) in the sound button's blue at low strength, fading towards the edges.
+       It is the page background, so it sits behind the lightning and behind the (opaque) video and never touches the picture. */
+    .bg {
+      position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+      background:
+        radial-gradient(ellipse 75% 65% at 50% 40%, transparent 0%, rgba(3, 4, 9, .55) 60%, rgba(3, 4, 9, .92) 100%),
+        linear-gradient(rgba(106, 168, 255, .25) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(106, 168, 255, .25) 1px, transparent 1px),
+        #030409;
+      background-size: auto, 40px 40px, 40px 40px, auto;
     }
+    .bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
     /* the video is opaque: the lightning is drawn behind it and only shows around it */
     .bg video { position: absolute; left: 0; top: var(--rt, 0px); width: 100%; height: calc(100% - var(--rt, 0px) - var(--rb, 0px)); object-fit: contain; display: block; }
 
@@ -153,7 +157,7 @@
 
     /* ---- Layout: the video sits whole in the middle; two rows of links above it (3 + 2) and two below (3 + 2) ---- */
     :root { --rt: clamp(190px, 27vh, 230px); --rb: clamp(150px, 20vh, 170px); }   /* heights of the space above / below the video; the video fills what is left */
-    body { overflow: hidden; touch-action: none; }   /* no panning, so a finger drag keeps reporting its position */
+    body { overflow: hidden; }
     main { position: relative; z-index: 50; pointer-events: none; }
     .avatar { pointer-events: auto; }
     footer { position: fixed; left: 0; right: 0; bottom: max(12px, env(safe-area-inset-bottom)); margin: 0; z-index: 4; }
@@ -175,6 +179,9 @@
     }
     .band a.link > svg, .band a.link > .logo { position: static; margin: 0; flex: 0 0 auto; }
     .band a.link svg, .band .logo { width: var(--ic); height: var(--ic); }
+    /* the round project logos and the globe have a ring / padding inside their box, so they are drawn a little bigger to look as big as the top icons */
+    .band .logo { width: calc(var(--ic) + 7px); height: calc(var(--ic) + 7px); }
+    #bottom a.link > svg { width: calc(var(--ic) + 3px); height: calc(var(--ic) + 3px); }
 
     @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
 
@@ -184,7 +191,7 @@
   </style>
 </head>
 <body>
-  <div class="bg"><canvas id="bolts"></canvas><div id="glow" class="touch-glow"></div><video id="bgvideo" src="bg.mp4" autoplay muted loop playsinline preload="auto"></video></div>
+  <div class="bg"><canvas id="bolts"></canvas><video id="bgvideo" src="bg.mp4" autoplay muted loop playsinline preload="auto"></video></div>
   <main>
     <img class="avatar" src="avatar.jpg" alt="Hassan Aldajah">
     <h1>Hassan Aldajah</h1>
@@ -397,10 +404,10 @@
 
       function frame(now) {
         if (!started) { started = true; nextStrike = now + 900; nextArc = now + 250; }
-        if (now > nextArc) { arc(now); nextArc = now + rand(350, 1100); }
+        if (now > nextArc) { arc(now); nextArc = now + rand(150, 500); }
         if (now > nextStrike) {
           strike(now);
-          nextStrike = now + (Math.random() < .3 ? rand(250, 500) : rand(1800, 4200));   // sometimes a double strike
+          nextStrike = now + (Math.random() < .4 ? rand(150, 350) : rand(700, 1800));   // sometimes a double strike
         }
         bolts = bolts.filter(b => now - b.born < b.life);
         draw(now);
@@ -410,29 +417,6 @@
       addEventListener("resize", resize);
       resize();
       requestAnimationFrame(frame);
-    })();
-
-    // Blue glow wherever a finger / the pointer is, except over the video picture, the links (they glow in their
-    // own colour), the avatar and the sound button (it has its own blue glow).
-    (() => {
-      const glow = document.getElementById("glow"), video = document.getElementById("bgvideo");
-      function onPicture(x, y) {   // the video is letterboxed (object-fit: contain), so test the picture itself, not the element
-        const r = video.getBoundingClientRect(), vw = video.videoWidth || 576, vh = video.videoHeight || 654;
-        const k = Math.min(r.width / vw, r.height / vh), w = vw * k, h = vh * k;
-        const l = r.left + (r.width - w) / 2, t = r.top + (r.height - h) / 2;
-        return x >= l && x <= l + w && y >= t && y <= t + h;
-      }
-      function move(e) {
-        glow.style.transform = `translate3d(${e.clientX}px,${e.clientY}px,0)`;
-        const ui = e.target.closest && e.target.closest("a.link, .avatar, #sound");
-        glow.style.opacity = ui || onPicture(e.clientX, e.clientY) ? 0 : 1;
-      }
-      const hide = () => { glow.style.opacity = 0; };
-      addEventListener("pointerdown", move);
-      addEventListener("pointermove", move);
-      addEventListener("pointerup", e => { if (e.pointerType !== "mouse") hide(); });
-      addEventListener("pointercancel", hide);
-      document.documentElement.addEventListener("mouseleave", hide);
     })();
 
     // Put the links in their rows: 3 + 2 above the video, 3 + 2 below it
